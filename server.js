@@ -1,6 +1,11 @@
 const express=require('express'),http=require('http'),{Server}=require('socket.io'),QR=require('qrcode');
 const Q=require('./questions'),N=Q.length,DUR=10000,MAXP=10;
-const app=express();app.set('trust proxy',true);app.use(express.static('public'));
+const app = express();
+app.set('trust proxy', true);
+
+for (const file of ['tv.html', 'play.html', 'style.css']) {
+  app.get('/' + file, (req, res) => res.sendFile(file, { root: __dirname }));
+}
 app.get('/',(q,r)=>r.redirect('/tv.html'));
 const server=http.createServer(app),io=new Server(server);
 const rooms={};
