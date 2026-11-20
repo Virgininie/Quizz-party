@@ -1,0 +1,37 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Quiz Party — Écran</title><link rel="stylesheet" href="style.css"></head>
+<body class="tv"><div id="app"></div>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const s=io();let st=null,dl=0,ls=-1,ac;
+const $=i=>document.getElementById(i);
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const col=n=>{let h=0;for(const c of n)h=(h*31+c.charCodeAt(0))%360;return`hsl(${h} 70% 42%)`};
+const av=p=>`<div class="av" style="background:${col(p.name)}">${esc(p.name.slice(0,2).toUpperCase())}</div>`;
+function beep(f=520,d=.12){try{ac=ac||new AudioContext();const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=f;g.gain.value=.15;o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+d)}catch(e){}}
+function jingle(){[523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,.25),i*160))}
+s.on('connect',()=>s.emit('host:create',JSON.parse(sessionStorage.host||'null'),r=>{sessionStorage.host=JSON.stringify(r)}));
+s.on('state',v=>{const prev=st&&st.phase;st=v;dl=Date.now()+v.left;ls=-1;render();if(v.phase==='countdown'&&prev!=='countdown')jingle()});
+const pl=n=>n+' pt'+(Math.abs(n)>1?'s':'');
+const rk=l=>l.map(p=>`<div class="card"><b>${['🥇','🥈','🥉'][p.place-1]||p.place+'.'}</b>${av(p)}<span class="nm">${esc(p.name)}</span><b>${pl(p.score)}</b></div>`).join('');
+function render(){
+  const v=st,ph=v.phase;let h='',ev=null;
+  if(ph==='lobby'){
+    const on=v.players.filter(p=>p.online),ok=on.length&&on.every(p=>p.ready);ev='host:rules';
+    h=`<h1>🎉 Quiz Party</h1><div class="row"><div class="qr"><img src="/qr/${v.code}"><p>Scannez pour jouer<br>Code <b>${v.code}</b></p></div><div style="flex:1;min-width:300px"><h2>Joueurs (${v.players.length}/10)</h2><div class="grid">${v.players.map(p=>`<div class="card ${p.online?'':'off'}">${av(p)}<span class="nm">${esc(p.name)}</span>${p.ready?'✅':'⏳'}</div>`).join('')}</div></div></div><button id="b" ${ok?'':'disabled'}>${ok?'Voir les règles ▶':'En attente des joueurs…'}</button>`;
+  }else if(ph==='rules'){
+    ev='host:launch';h=`<h1>📜 Les règles</h1><ul><li>${v.n} questions, 10 secondes pour répondre</li><li>Votre premier choix est définitif</li><li>1ʳᵉ bonne réponse : 2 points</li><li>Autres bonnes réponses : 1 point</li><li>Mauvaise réponse ou pas de réponse : 0 point</li><li>Classement après les questions 5, 10, 15 et 20</li></ul><br><button id="b">Lancer la partie 🚀</button>`;
+  }else if(ph==='countdown'){h='<h1>La partie commence !</h1><div class="big" id="cd"></div>'}
+  else if(ph==='next'){h='<h2>Question suivante dans</h2><div class="big" id="cd"></div>'}
+  else if(ph==='question'||ph==='correction'){
+    const c=ph==='correction';
+    h=`<div class="muted">Question ${v.qi+1} / ${v.n}</div><div class="q">${esc(v.q)}</div>`+(c?'':'<div class="bar"><i id="bar"></i></div><div class="big" id="cd"></div>')+`<div class="opts">${v.o.map((o,i)=>`<button class="o${i}${c?(i===v.c?' good':' dim'):''}">${esc(o)}</button>`).join('')}</div>`;
+    if(!c)h+=`<p>${v.got.length} / ${v.total} réponses</p>`;
+    else h+=v.players.filter(p=>p.inGame).sort((a,b)=>((v.res[b.id]||{}).pts||0)-((v.res[a.id]||{}).pts||0)||((v.res[a.id]||{}).dt||1e9)-((v.res[b.id]||{}).dt||1e9)).map(p=>{const r=v.res[p.id]||{};return`<div class="card">${av(p)}<span class="nm">${esc(p.name)}</span><span>${r.a<0?'⏳ Pas de réponse':(r.ok?'✅':'❌')+' '+(r.dt/1000).toFixed(2)+' s'}</span><b>${r.pts?'+'+r.pts:''}</b></div>`}).join('');
+  }else if(ph==='ranking'){h=`<h1>📊 Classement après ${v.qi+1} questions</h1>`+rk(v.rank)}
+  else if(ph==='final'){ev='host:again';h='<h1>🏆 Classement final</h1>'+rk(v.rank)+'<button id="b">Rejouer 🔁</button>'}
+  $('app').innerHTML=h;if($('b')&&ev)$('b').onclick=()=>{beep(660);s.emit(ev)};
+}
+setInterval(()=>{if(!st)return;const l=Math.max(0,dl-Date.now()),sec=Math.ceil(l/1000);
+  if($('cd'))$('cd').textContent=sec;if($('bar'))$('bar').style.width=l/100+'%';
+  if(sec!==ls){ls=sec;if(sec>0&&(['countdown','next'].includes(st.phase)||(st.phase==='question'&&sec<=3)))beep(520)}},100);
+</script></body></html>

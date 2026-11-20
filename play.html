@@ -1,0 +1,39 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Quiz Party</title><link rel="stylesheet" href="style.css"></head>
+<body class="ph"><div id="app"></div>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const s=io(),$=i=>document.getElementById(i),code=(new URLSearchParams(location.search).get('r')||'').toUpperCase();
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pid=localStorage.pid||(localStorage.pid=Math.random().toString(36).slice(2)+Date.now().toString(36));
+let st=null,joined=false,msg='',dl=0,sent=-1;
+function join(name){s.emit('join',{code,pid,name},r=>{if(r.ok){joined=true;msg='';localStorage.name=name;localStorage.room=code}else msg=r.late?'late':r.err;render()})}
+s.on('connect',()=>{if(localStorage.room===code&&localStorage.name)join(localStorage.name);else render()});
+s.on('state',v=>{st=v;dl=Date.now()+v.left;render()});
+const late='<h1>⏳</h1><p>Partie en cours — tu pourras rejoindre la prochaine.</p>';
+function game(){
+  const v=st,me=v.players.find(p=>p.id===pid),ph=v.phase;
+  if(!me)return'<p>Tu n’es plus dans ce salon. Recharge la page.</p>';
+  if(ph==='lobby')return`<h2>${esc(me.name)}</h2>`+(me.ready?'<h1>✅</h1><p>En attente des autres joueurs</p>':'<button id="rd" style="font-size:1.6em;padding:24px 48px">Prêt !</button>');
+  if(!me.inGame)return late;
+  if(ph==='question'){
+    if(sent===v.qi||v.got.includes(pid))return'<h1>✋</h1><p>Réponse envoyée !</p>';
+    return`<div>Question ${v.qi+1} / ${v.n}</div><div class="bar"><i id="bar"></i></div><div class="opts">${v.o.map((o,i)=>`<button class="o${i}" data-i="${i}">${esc(o)}</button>`).join('')}</div>`;
+  }
+  if(ph==='correction'){const r=v.res[pid]||{};return(r.ok?`<h1>✅ +${r.pts}</h1>`:r.a<0?'<h1>⏳</h1><p>Pas de réponse</p>':'<h1>❌</h1>')+`<p>Bonne réponse : <b>${esc(v.o[v.c])}</b></p>`}
+  if(ph==='ranking'||ph==='final'){const m=v.rank.find(p=>p.id===pid)||{place:'-',score:0};return`<h1>${ph==='final'?'🏁 Fin !':'📊'}</h1><div class="big">${m.place===1?'1er':m.place+'ᵉ'}</div><p>${m.score} point${Math.abs(m.score)>1?'s':''}</p>`+(ph==='final'?'<p>Merci d’avoir joué !</p>':'')}
+  return'<h1>Prépare-toi…</h1><div class="big" id="cd"></div>';
+}
+function render(){
+  let h;
+  if(!code)h='<h1>Quiz Party</h1><p>Scanne le QR code affiché sur le grand écran.</p>';
+  else if(msg==='late')h=late;
+  else if(!joined)h=`<h1>🎉 Rejoindre</h1><input id="nm" maxlength="14" placeholder="Ton pseudo"><br><button id="go">Rejoindre</button><p>${esc(msg)}</p>`;
+  else if(!st)h='<p>Connexion…</p>';
+  else h=game();
+  $('app').innerHTML=h;
+  if($('go'))$('go').onclick=()=>{const n=$('nm').value.trim();if(n)join(n)};
+  if($('rd'))$('rd').onclick=()=>s.emit('ready');
+  document.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{sent=st.qi;s.emit('answer',+b.dataset.i);navigator.vibrate&&navigator.vibrate(30);render()});
+}
+setInterval(()=>{if(!st)return;const l=Math.max(0,dl-Date.now());if($('cd'))$('cd').textContent=Math.ceil(l/1000);if($('bar'))$('bar').style.width=l/100+'%'},100);
+</script></body></html>
