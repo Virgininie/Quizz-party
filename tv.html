@@ -1,37 +1,170 @@
 <!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Quiz Party — Écran</title><link rel="stylesheet" href="style.css"></head>
-<body class="tv"><div id="app"></div>
+<body class="tv"><button class="sound-toggle" id="sound" type="button"></button><div id="app"></div>
 <script src="/socket.io/socket.io.js"></script>
 <script>
-const s=io();let st=null,dl=0,ls=-1,ac;
-const $=i=>document.getElementById(i);
-const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const col=n=>{let h=0;for(const c of n)h=(h*31+c.charCodeAt(0))%360;return`hsl(${h} 70% 42%)`};
-const av=p=>`<div class="av" style="background:${col(p.name)}">${esc(p.name.slice(0,2).toUpperCase())}</div>`;
-function beep(f=520,d=.12){try{ac=ac||new AudioContext();const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=f;g.gain.value=.15;o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+d)}catch(e){}}
-function jingle(){[523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,.25),i*160))}
-s.on('connect',()=>s.emit('host:create',JSON.parse(sessionStorage.host||'null'),r=>{sessionStorage.host=JSON.stringify(r)}));
-s.on('state',v=>{const prev=st&&st.phase;st=v;dl=Date.now()+v.left;ls=-1;render();if(v.phase==='countdown'&&prev!=='countdown')jingle()});
-const pl=n=>n+' pt'+(Math.abs(n)>1?'s':'');
-const rk=l=>l.map(p=>`<div class="card"><b>${['🥇','🥈','🥉'][p.place-1]||p.place+'.'}</b>${av(p)}<span class="nm">${esc(p.name)}</span><b>${pl(p.score)}</b></div>`).join('');
-function render(){
-  const v=st,ph=v.phase;let h='',ev=null;
-  if(ph==='lobby'){
-    const on=v.players.filter(p=>p.online),ok=on.length&&on.every(p=>p.ready);ev='host:rules';
-    h=`<h1>🎉 Quiz Party</h1><div class="row"><div class="qr"><img src="/qr/${v.code}"><p>Scannez pour jouer<br>Code <b>${v.code}</b></p></div><div style="flex:1;min-width:300px"><h2>Joueurs (${v.players.length}/10)</h2><div class="grid">${v.players.map(p=>`<div class="card ${p.online?'':'off'}">${av(p)}<span class="nm">${esc(p.name)}</span>${p.ready?'✅':'⏳'}</div>`).join('')}</div></div></div><button id="b" ${ok?'':'disabled'}>${ok?'Voir les règles ▶':'En attente des joueurs…'}</button>`;
-  }else if(ph==='rules'){
-    ev='host:launch';h=`<h1>📜 Les règles</h1><ul><li>${v.n} questions, 10 secondes pour répondre</li><li>Votre premier choix est définitif</li><li>1ʳᵉ bonne réponse : 2 points</li><li>Autres bonnes réponses : 1 point</li><li>Mauvaise réponse ou pas de réponse : 0 point</li><li>Classement après les questions 5, 10, 15 et 20</li></ul><br><button id="b">Lancer la partie 🚀</button>`;
-  }else if(ph==='countdown'){h='<h1>La partie commence !</h1><div class="big" id="cd"></div>'}
-  else if(ph==='next'){h='<h2>Question suivante dans</h2><div class="big" id="cd"></div>'}
-  else if(ph==='question'||ph==='correction'){
-    const c=ph==='correction';
-    h=`<div class="muted">Question ${v.qi+1} / ${v.n}</div><div class="q">${esc(v.q)}</div>`+(c?'':'<div class="bar"><i id="bar"></i></div><div class="big" id="cd"></div>')+`<div class="opts">${v.o.map((o,i)=>`<button class="o${i}${c?(i===v.c?' good':' dim'):''}">${esc(o)}</button>`).join('')}</div>`;
-    if(!c)h+=`<p>${v.got.length} / ${v.total} réponses</p>`;
-    else h+=v.players.filter(p=>p.inGame).sort((a,b)=>((v.res[b.id]||{}).pts||0)-((v.res[a.id]||{}).pts||0)||((v.res[a.id]||{}).dt||1e9)-((v.res[b.id]||{}).dt||1e9)).map(p=>{const r=v.res[p.id]||{};return`<div class="card">${av(p)}<span class="nm">${esc(p.name)}</span><span>${r.a<0?'⏳ Pas de réponse':(r.ok?'✅':'❌')+' '+(r.dt/1000).toFixed(2)+' s'}</span><b>${r.pts?'+'+r.pts:''}</b></div>`}).join('');
-  }else if(ph==='ranking'){h=`<h1>📊 Classement après ${v.qi+1} questions</h1>`+rk(v.rank)}
-  else if(ph==='final'){ev='host:again';h='<h1>🏆 Classement final</h1>'+rk(v.rank)+'<button id="b">Rejouer 🔁</button>'}
-  $('app').innerHTML=h;if($('b')&&ev)$('b').onclick=()=>{beep(660);s.emit(ev)};
+const socket = io(), $ = id => document.getElementById(id);
+const escapeHtml = text => String(text).replace(/[&<>"]/g, char => (
+  {'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[char]
+));
+const medals = ['🥇', '🥈', '🥉'];
+let state, deadline, lastSecond, audio, category = 'mixte';
+let sound = localStorage.getItem('quiz-sound') !== 'off';
+
+function enableAudio() {
+  if (!sound) return;
+  try {
+    audio ||= new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state !== 'running') audio.resume().catch(() => {});
+  } catch {}
 }
-setInterval(()=>{if(!st)return;const l=Math.max(0,dl-Date.now()),sec=Math.ceil(l/1000);
-  if($('cd'))$('cd').textContent=sec;if($('bar'))$('bar').style.width=l/100+'%';
-  if(sec!==ls){ls=sec;if(sec>0&&(['countdown','next'].includes(st.phase)||(st.phase==='question'&&sec<=3)))beep(520)}},100);
+
+function beep(frequency, delay = 0) {
+  if (!sound || audio?.state !== 'running') return;
+  const start = audio.currentTime + delay;
+  const oscillator = audio.createOscillator(), gain = audio.createGain();
+  oscillator.frequency.value = frequency;
+  gain.gain.setValueAtTime(.14, start);
+  gain.gain.exponentialRampToValueAtTime(.001, start + .16);
+  oscillator.connect(gain).connect(audio.destination);
+  oscillator.start(start);
+  oscillator.stop(start + .16);
+}
+
+function labelSound() {
+  $('sound').textContent = sound ? 'Son activé' : 'Son coupé';
+  $('sound').setAttribute('aria-pressed', String(sound));
+}
+$('sound').onclick = () => {
+  sound = !sound;
+  localStorage.setItem('quiz-sound', sound ? 'on' : 'off');
+  if (sound) enableAudio();
+  else if (audio?.state === 'running') audio.suspend().catch(() => {});
+  labelSound();
+};
+labelSound();
+
+socket.on('connect', () => {
+  socket.emit('host:create', JSON.parse(sessionStorage.host || 'null'), host => {
+    sessionStorage.host = JSON.stringify(host);
+  });
+});
+
+socket.on('state', next => {
+  const changed = !state || state.code !== next.code || state.phase !== next.phase || state.qi !== next.qi;
+  state = next;
+  deadline = Date.now() + next.left;
+  if (changed) {
+    lastSecond = null;
+    if (next.phase === 'countdown') [523, 659, 784, 1047].forEach((note, i) => beep(note, i * .13));
+  }
+  if (!changed && next.phase === 'question' && $('received')) {
+    $('received').textContent = `${next.received} / ${next.total} réponses`;
+  } else if (changed || ['lobby', 'categories'].includes(next.phase)) {
+    render();
+  }
+  tick();
+});
+
+function avatar(player) {
+  return `<span class="av">${escapeHtml(player.name.slice(0, 2).toUpperCase())}</span>`;
+}
+function ranking(players) {
+  return players.map(player => `<div class="card"><b>${medals[player.place - 1] || player.place + '.'}</b>
+    ${avatar(player)}<span class="nm">${escapeHtml(player.name)}</span><b>${player.score} pts</b></div>`).join('');
+}
+function correction(v) {
+  const players = v.players.filter(player => player.inGame);
+  const groups = v.o.map((option, i) => {
+    const members = players.filter(player => v.res[player.id]?.a === i)
+      .sort((a,b) => v.res[a.id].dt - v.res[b.id].dt);
+    const correct = i === v.c;
+    return `<section class="answer-group ${correct ? 'answer-correct' : ''}">
+      <h2>${escapeHtml(option)} ${correct ? '<span>✓ Bonne réponse</span>' : ''}</h2><ul>
+      ${members.map(player => {
+        const result = v.res[player.id];
+        return `<li><strong>${escapeHtml(player.name)}</strong> <span>${(result.dt / 1000).toFixed(2)} s · +${result.pts} pt${result.pts === 1 ? '' : 's'}</span></li>`;
+      }).join('')}</ul></section>`;
+  }).join('');
+  const absent = players.filter(player => v.res[player.id]?.a === -1);
+  return `<div class="correction-grid">${groups}</div>${absent.length
+    ? `<p class="unanswered"><strong>Sans réponse</strong> · ${absent.map(player => escapeHtml(player.name)).join(', ')}</p>`
+    : ''}`;
+}
+
+function render() {
+  const v = state;
+  let html = '', event;
+  switch (v.phase) {
+    case 'lobby': {
+      const online = v.players.filter(player => player.online);
+      const ready = online.length && online.every(player => player.ready);
+      event = 'host:rules';
+      html = `<h1>🎉 Quiz Party</h1><div class="row"><div class="qr">
+        <img src="/qr/${v.code}" alt="QR code pour rejoindre"><p>Scannez pour jouer<br>Code <b>${v.code}</b></p></div>
+        <div><h2>Joueurs (${v.players.length}/10)</h2><div class="grid">${v.players.map(player =>
+          `<div class="card ${player.online ? '' : 'off'}">${avatar(player)}<span class="nm">${escapeHtml(player.name)}</span>${player.ready ? '✅' : '⏳'}</div>`
+        ).join('')}</div></div></div><button id="action" ${ready ? '' : 'disabled'}>${ready ? 'Voir les règles' : 'En attente des joueurs…'}</button>`;
+      break;
+    }
+    case 'rules':
+      event = 'host:categories';
+      html = `<h1>Les règles</h1><ul>
+        <li>${v.n} questions, 10 secondes pour répondre</li><li>Votre premier choix est définitif</li>
+        <li>Première bonne réponse · 2 points</li><li>Autres bonnes réponses · 1 point</li>
+        <li>Mauvaise réponse ou absence de réponse · 0 point</li><li>Classement après les questions 5, 10, 15 et 20</li>
+        </ul><br><button id="action">Choisir la catégorie</button>`;
+      break;
+    case 'categories':
+      html = `<h1>Choisissez une catégorie</h1><form id="categories"><div class="category-grid">
+        ${Object.entries(v.categories).map(([id, label]) =>
+          `<label><input type="radio" name="category" value="${id}" ${category === id ? 'checked' : ''}><span>${escapeHtml(label)}</span></label>`
+        ).join('')}</div><button>Valider et lancer la partie</button></form>`;
+      break;
+    case 'countdown':
+    case 'next':
+      html = `<h1>${v.phase === 'countdown' ? 'La partie commence !' : 'Question suivante'}</h1><div class="big" id="cd"></div>`;
+      break;
+    case 'question':
+    case 'correction':
+      html = `<div class="muted">Question ${v.qi + 1} / ${v.n}</div><div class="q">${escapeHtml(v.q)}</div>`;
+      html += v.phase === 'correction' ? correction(v) :
+        `<div class="bar"><i id="bar"></i></div><div class="big" id="cd"></div><div class="opts">
+        ${v.o.map((option, i) => `<div class="tv-option o${i}">${escapeHtml(option)}</div>`).join('')}
+        </div><p id="received">${v.received} / ${v.total} réponses</p>`;
+      break;
+    case 'ranking':
+      html = `<h1>Classement après ${v.qi + 1} questions</h1>${ranking(v.rank)}`;
+      break;
+    case 'final':
+      event = 'host:again';
+      html = `<h1>🏆 Classement final</h1><div class="podium">${v.rank.filter(player => player.place <= 3).map(player =>
+        `<div><b>${medals[player.place - 1]}</b> ${escapeHtml(player.name)} <span>${player.score} pts</span></div>`
+      ).join('')}</div>${ranking(v.rank)}<button id="action">Rejouer</button>`;
+      break;
+  }
+  $('app').innerHTML = html;
+  if (event) $('action').onclick = () => { enableAudio(); socket.emit(event); };
+  const form = $('categories');
+  if (form) {
+    form.onchange = () => { category = new FormData(form).get('category'); };
+    form.onsubmit = event => {
+      event.preventDefault();
+      enableAudio();
+      socket.emit('host:launch', new FormData(form).get('category'));
+    };
+  }
+}
+
+function tick() {
+  if (!state) return;
+  const remaining = Math.max(0, deadline - Date.now());
+  const second = Math.ceil(remaining / 1000);
+  if ($('cd')) $('cd').textContent = second;
+  if ($('bar')) $('bar').style.width = remaining / 100 + '%';
+  if (second === lastSecond) return;
+  lastSecond = second;
+  if (second > 0 && (state.phase === 'next' ||
+      (state.phase === 'question' && second <= 3))) beep(520);
+}
+setInterval(tick, 75);
 </script></body></html>

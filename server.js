@@ -1,5 +1,25 @@
 const express=require('express'),http=require('http'),{Server}=require('socket.io'),QR=require('qrcode');
-const Q=require('./questions'),N=Q.length,DUR=10000,MAXP=10;
+const { categories, bank } = require('./questions');
+const N = 25, DUR = 10000, MAXP = 10;
+
+function shuffle(values) {
+  const result = [...values];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+function makeQuestions(category) {
+  const rows = category === 'mixte'
+    ? shuffle(Object.values(bank).flatMap(pool => shuffle(pool).slice(0, 5)))
+    : shuffle(bank[category]).slice(0, N);
+  return rows.map(([q, correct, ...others]) => {
+    const o = shuffle([correct, ...others]);
+    return { q, o, c: o.indexOf(correct) };
+  });
+}
 const app = express();
 app.set('trust proxy', true);
 
@@ -15,19 +35,35 @@ app.get('/qr/:c',async(req,res)=>{
   res.type('image/svg+xml').send(await QR.toString(`${base}/play.html?r=${encodeURIComponent(req.params.c)}`,{type:'svg',margin:1}));
 });
 const rank=l=>{const s=[...l].sort((a,b)=>b.score-a.score);let p=0,last=null;return s.map((x,i)=>{if(x.score!==last){p=i+1;last=x.score}return{...x,place:p}})};
-function view(r){
+function view(r, socket){
   const players=Object.entries(r.players).map(([id,p])=>({id,name:p.name,score:p.score,ready:p.ready,online:p.online,inGame:p.inGame}));
   const v={code:r.code,phase:r.phase,players,rank:rank(players.filter(p=>r.phase==='lobby'||p.inGame)),qi:r.qi,n:N,left:r.endsAt?Math.max(0,r.endsAt-Date.now()):0};
-  const q=Q[r.qi];
-  if(q&&(r.phase==='question'||r.phase==='correction')){v.q=q.q;v.o=q.o;v.got=Object.keys(r.ans);v.total=players.filter(p=>p.inGame).length}
-  if(q&&r.phase==='correction'){v.c=q.c;v.res=r.res}
+  const q=r.questions?.[r.qi];
+  if (socket.data.host && r.phase === 'categories') v.categories = { ...categories, mixte: 'Mixte' };
+  if (q && (r.phase === 'question' || r.phase === 'correction')) {
+    v.q = q.q;
+    v.o = q.o;
+    v.received = Object.keys(r.ans).length;
+    v.total = players.filter(p => p.inGame).length;
+    v.choice = r.ans[socket.data.pid]?.i ?? null;
+  }
+  if (q && r.phase === 'correction') {
+    v.c = q.c;
+    if (socket.data.host) v.res = r.res;
+    else v.result = r.res[socket.data.pid];
+  }
   return v;
 }
-const push=r=>io.to(r.code).emit('state',view(r));
+function push(room) {
+  for (const id of io.sockets.adapter.rooms.get(room.code) || []) {
+    const socket = io.sockets.sockets.get(id);
+    if (socket) socket.emit('state', view(room, socket));
+  }
+}
 function go(r,phase,ms,next){clearTimeout(r.t);r.phase=phase;r.endsAt=ms?Date.now()+ms:0;push(r);if(ms)r.t=setTimeout(next,ms)}
 function nextQ(r){r.qi++;r.ans={};r.res={};r.qStart=Date.now();go(r,'question',DUR,()=>correct(r))}
 function correct(r){
-  const q=Q[r.qi];let first=null;
+  const q=r.questions?.[r.qi];let first=null;
   Object.entries(r.ans).forEach(([id,a])=>{if(a.i===q.c&&(!first||a.t<r.ans[first].t))first=id});
   Object.entries(r.players).filter(([,p])=>p.inGame).forEach(([id,p])=>{
     const a=r.ans[id],ok=!!a&&a.i===q.c,pts=ok?(id===first?2:1):0;
@@ -65,7 +101,7 @@ io.on('connection',s=>{
   s.on('ready',()=>{const r=R(),p=r&&r.players[s.data.pid];if(p&&r.phase==='lobby'){p.ready=!p.ready;push(r)}});
   s.on('answer',i=>{
     const r=R(),p=r&&r.players[s.data.pid];i=+i;
-    if(!p||!p.inGame||r.phase!=='question'||r.ans[s.data.pid]||!(i>=0&&i<4))return;
+    if(!p||!p.inGame||r.phase!=='question'||Date.now()>=r.endsAt||r.ans[s.data.pid]||!Number.isInteger(i)||!(i>=0&&i<4))return;
     r.ans[s.data.pid]={i,t:Date.now(),dt:Date.now()-r.qStart};
     const total=Object.values(r.players).filter(x=>x.inGame).length;
     Object.keys(r.ans).length>=total?correct(r):push(r);
@@ -75,8 +111,14 @@ io.on('connection',s=>{
     const on=Object.values(r.players).filter(p=>p.online);
     if(on.length&&on.every(p=>p.ready))go(r,'rules',0);
   });
-  s.on('host:launch',()=>{
-    const r=R();if(!s.data.host||!r||r.phase!=='rules')return;
+  s.on('host:categories', () => {
+    const r = R();
+    if (s.data.host && r?.phase === 'rules') go(r, 'categories', 0);
+  });
+  s.on('host:launch',(category)=>{
+    const r=R();
+    if (!s.data.host || r?.phase !== 'categories' || (category !== 'mixte' && !Object.hasOwn(bank, category))) return;
+    r.questions = makeQuestions(category);
     Object.values(r.players).forEach(p=>{p.inGame=p.ready;p.score=0});
     r.qi=-1;go(r,'countdown',5000,()=>nextQ(r));
   });
