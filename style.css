@@ -78,3 +78,14 @@ input{font:inherit;border:0;border-radius:14px;padding:14px;width:80%;max-width:
 @media (prefers-reduced-motion: reduce) {
   .score-gain, .answer-group, .podium, .tv #cd { animation: none; }
 }
+.category-grid small { display: block; opacity: .82; }
+.import-button { display: inline-block; padding: 8px 0; }
+.import-button input { display: block; width: min(100%, 320px); margin: 6px auto; }
+.buzzer { width: min(70vw, 260px); aspect-ratio: 1; border-radius: 50%; font-size: 2rem; background: #ffbc3d; box-shadow: 0 9px 0 #a04c24; }
+.music-disc { font-size: 3em; }
+.tv a { color: #ffdf87; }
+.tv select { font: inherit; padding: .6em; border-radius: 12px; }
+#judge { display: grid; gap: .4em; max-width: 690px; margin: 0 auto; }
+#judge label { text-align: left; padding: .5em; background: #412375; border-radius: 12px; }
+#judge input { width: auto; }
+.buzz-queue { display: flex; flex-wrap: wrap; justify-content: center; }

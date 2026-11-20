@@ -1,173 +1,63 @@
-const categories = {
-  culture: "Culture générale",
-  ecran: "Cinéma & séries",
-  musique: "Musique",
-  sciences: "Sciences & nature",
-  fun: "Fun",
-};
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
+const { parse } = require('csv-parse/sync');
 
-// Chaque ligne contient la question, la réponse correcte, puis trois distracteurs.
-const bank = {
-  culture: [
-    ["Quelle est la capitale du Canada ?", "Ottawa", "Toronto", "Montréal", "Vancouver"],
-    ["Quel est le plus grand océan du monde ?", "Pacifique", "Atlantique", "Indien", "Arctique"],
-    ["Qui a peint « La Nuit étoilée » ?", "Van Gogh", "Monet", "Picasso", "Dalí"],
-    ["Dans quel pays se trouve le Machu Picchu ?", "Pérou", "Mexique", "Chili", "Bolivie"],
-    ["Combien de joueurs une équipe de football aligne-t-elle sur le terrain ?", "11", "9", "10", "12"],
-    ["Que mange-t-on traditionnellement à la Chandeleur ?", "Des crêpes", "Des galettes des rois", "Des marrons", "Des bugnes"],
-    ["En quelle année a eu lieu la prise de la Bastille ?", "1789", "1715", "1804", "1848"],
-    ["Quel est le plus petit pays du monde ?", "Vatican", "Monaco", "Saint-Marin", "Liechtenstein"],
-    ["Combien de minutes dure un match de football (hors prolongation) ?", "90", "80", "100", "120"],
-    ["Quel pays a pour capitale Wellington ?", "Nouvelle-Zélande", "Australie", "Irlande", "Afrique du Sud"],
-    ["Qui a écrit « Les Misérables » ?", "Victor Hugo", "Émile Zola", "Balzac", "Alexandre Dumas"],
-    ["Quelle est la racine carrée de 144 ?", "12", "10", "11", "14"],
-    ["Quelle est la capitale du Portugal ?", "Lisbonne", "Porto", "Faro", "Coimbra"],
-    ["Quel fleuve traverse Paris ?", "La Seine", "La Loire", "Le Rhône", "La Garonne"],
-    ["Quelle monnaie utilise le Japon ?", "Le yen", "Le won", "Le yuan", "Le baht"],
-    ["Qui a écrit Le Petit Prince ?", "Antoine de Saint-Exupéry", "Jules Verne", "Marcel Pagnol", "Victor Hugo"],
-    ["Dans quel pays se trouve la ville de Bruges ?", "Belgique", "Pays-Bas", "Suisse", "Luxembourg"],
-    ["Quel pays a offert la statue de la Liberté aux États-Unis ?", "La France", "L’Italie", "Le Royaume-Uni", "Le Canada"],
-    ["Combien de cases compte un échiquier ?", "64", "48", "72", "81"],
-    ["Quel sport se joue à Roland-Garros ?", "Le tennis", "Le golf", "Le badminton", "Le rugby"],
-    ["De quel pays Helsinki est-elle la capitale ?", "Finlande", "Suède", "Norvège", "Danemark"],
-    ["Dans quelle ville se trouve la Sagrada Família ?", "Barcelone", "Madrid", "Séville", "Valence"],
-    ["Quel est le troisième mois de l’année ?", "Mars", "Avril", "Février", "Mai"],
-    ["Quel pays a la forme d’une botte sur la carte ?", "L’Italie", "L’Espagne", "La Grèce", "La Croatie"],
-    ["Qui a peint Guernica ?", "Pablo Picasso", "Salvador Dalí", "Claude Monet", "Joan Miró"],
-    ["Quel océan borde le Portugal continental ?", "L’Atlantique", "Le Pacifique", "L’Indien", "L’Arctique"],
-    ["Quel continent abrite le désert du Sahara ?", "L’Afrique", "L’Asie", "L’Europe", "L’Amérique du Sud"],
-    ["Quel est le nom de famille de l’auteur de Germinal ?", "Zola", "Hugo", "Dumas", "Flaubert"],
-    ["Quel écrivain a créé Sherlock Holmes ?", "Arthur Conan Doyle", "Agatha Christie", "Edgar Allan Poe", "Jules Verne"],
-    ["Dans quel pays se trouve la ville de Florence ?", "Italie", "France", "Espagne", "Autriche"],
-    ["Quel est le plus grand pays d’Amérique du Sud par superficie ?", "Brésil", "Argentine", "Pérou", "Colombie"],
-    ["À quel pays appartient l’île de Madère ?", "Portugal", "Espagne", "Italie", "Grèce"],
-    ["Quel sport utilise un volant ?", "Badminton", "Squash", "Tennis de table", "Padel"],
-    ["À quel siècle appartient l’année 1492 ?", "XVᵉ siècle", "XIVᵉ siècle", "XVIᵉ siècle", "XVIIᵉ siècle"],
-    ["Quelle ville est surnommée la Ville rose ?", "Toulouse", "Lyon", "Nice", "Reims"],
-    ["Quel pays est associé au tango né à Buenos Aires ?", "L’Argentine", "Le Chili", "Le Mexique", "Le Brésil"],
-    ["De quel pays Stockholm est-elle la capitale ?", "Suède", "Finlande", "Estonie", "Norvège"],
-  ],
-  ecran: [
-    ["Dans quelle saga entend-on « Je suis ton père » ?", "Star Wars", "Harry Potter", "Matrix", "Le Seigneur des anneaux"],
-    ["Quel est le prénom du jeune sorcier qui porte une cicatrice en éclair ?", "Harry", "Ron", "Neville", "Drago"],
-    ["Quel est le nom du cow-boy de Toy Story ?", "Woody", "Buzz", "Rex", "Andy"],
-    ["Dans quelle série trouve-t-on le café Central Perk ?", "Friends", "The Office", "Brooklyn Nine-Nine", "Modern Family"],
-    ["Quel personnage perd une chaussure de verre ?", "Cendrillon", "Ariel", "Belle", "Jasmine"],
-    ["Qui réalise Titanic et Avatar ?", "James Cameron", "Steven Spielberg", "Ridley Scott", "George Lucas"],
-    ["Quel animal est Rémy dans Ratatouille ?", "Un rat", "Une souris", "Un écureuil", "Un lapin"],
-    ["Dans quel film un parc accueille des dinosaures recréés ?", "Jurassic Park", "Jumanji", "King Kong", "Retour vers le futur"],
-    ["Quel est le nom du frère de Thor dans les films Marvel ?", "Loki", "Hulk", "Rocket", "Groot"],
-    ["Comment s’appelle l’âne dans la version française de Shrek ?", "L’Âne", "Bourriquet", "Maximus", "Abu"],
-    ["Quel personnage est joué par Keanu Reeves dans Matrix ?", "Neo", "Morpheus", "Cypher", "Smith"],
-    ["Quel est le nom de la ville des Simpson ?", "Springfield", "Sunnydale", "South Park", "Hawkins"],
-    ["Quelle série suit des ados qui découvrent le Monde à l’envers ?", "Stranger Things", "Wednesday", "Riverdale", "Lost"],
-    ["Quelle voiture sert de machine à remonter le temps dans Retour vers le futur ?", "Une DeLorean", "Une Mustang", "Une Corvette", "Une Cadillac"],
-    ["Quel hobbit reçoit la mission de porter l’Anneau unique jusqu’au Mordor ?", "Frodon", "Merry", "Pippin", "Bilbon"],
-    ["Dans quel film entend-on la chanson Libérée, délivrée ?", "La Reine des neiges", "Raiponce", "Encanto", "Vaiana"],
-    ["Quelle est la couleur de la pilule que Neo choisit dans Matrix ?", "Rouge", "Bleue", "Verte", "Jaune"],
-    ["Quel est le prénom de l’héroïne du Fabuleux Destin d’Amélie Poulain ?", "Amélie", "Audrey", "Anaïs", "Alice"],
-    ["Quel acteur incarne le capitaine Jack Sparrow ?", "Johnny Depp", "Orlando Bloom", "Brad Pitt", "Hugh Jackman"],
-    ["Quel couple tient le rôle principal dans la série Un gars, une fille en France ?", "Dujardin et Lamy", "Omar Sy et Fred Testot", "Canet et Cotillard", "Merad et Baroux"],
-    ["Quel studio a créé WALL-E ?", "Pixar", "DreamWorks", "Ghibli", "Illumination"],
-    ["Dans quelle série travaille Leslie Knope ?", "Parks and Recreation", "Friends", "The Crown", "Malcolm"],
-    ["Comment s’appelle le lionceau héros du Roi Lion ?", "Simba", "Scar", "Mufasa", "Pumbaa"],
-    ["Quel réalisateur a signé Le Voyage de Chihiro ?", "Hayao Miyazaki", "Isao Takahata", "Makoto Shinkai", "Satoshi Kon"],
-    ["Dans quel film Matthew McConaughey incarne-t-il Cooper, un pilote qui quitte la Terre pour chercher une nouvelle planète habitable ?", "Interstellar", "Inception", "Gravity", "Seul sur Mars"],
-    ["Qui réalise Les Dents de la mer ?", "Steven Spielberg", "James Cameron", "Ron Howard", "George Lucas"],
-  ],
-  musique: [
-    ["Combien de touches a un piano standard ?", "88", "76", "82", "92"],
-    ["Combien de cordes a une guitare classique ?", "6", "4", "5", "7"],
-    ["Quel groupe chante Bohemian Rhapsody ?", "Queen", "ABBA", "U2", "The Beatles"],
-    ["Qui interprète Thriller ?", "Michael Jackson", "Prince", "David Bowie", "Stevie Wonder"],
-    ["Quel instrument associe-t-on à Django Reinhardt ?", "La guitare", "La trompette", "Le violon", "Le piano"],
-    ["Quel groupe a sorti Dancing Queen ?", "ABBA", "Bee Gees", "Queen", "Blondie"],
-    ["Quelle chanteuse a coécrit et interprété « La Vie en rose » ?", "Édith Piaf", "Dalida", "Barbara", "Juliette Gréco"],
-    ["Quel chanteur interprète Formidable ?", "Stromae", "Soprano", "Vianney", "Gims"],
-    ["Quel groupe interprète « Hotel California » ?", "Eagles", "Fleetwood Mac", "Aerosmith", "The Rolling Stones"],
-    ["Quel duo français portait des casques de robots ?", "Daft Punk", "Air", "Justice", "Cassius"],
-    ["Lequel de ces instruments se joue couramment avec un archet ?", "Le violon", "La flûte", "La trompette", "Le xylophone"],
-    ["Qui chante Someone Like You ?", "Adele", "Rihanna", "Sia", "Beyoncé"],
-    ["Quel compositeur a écrit Les Quatre Saisons ?", "Vivaldi", "Mozart", "Chopin", "Bach"],
-    ["Qui interprète Purple Rain ?", "Prince", "George Michael", "Elton John", "David Bowie"],
-    ["Quel groupe a sorti Smells Like Teen Spirit ?", "Nirvana", "Pearl Jam", "Green Day", "Radiohead"],
-    ["Quel rappeur a sorti Lose Yourself ?", "Eminem", "Drake", "Jay-Z", "Kendrick Lamar"],
-    ["Quel chanteur interprète Ne me quitte pas en version originale ?", "Jacques Brel", "Charles Aznavour", "Serge Gainsbourg", "Georges Brassens"],
-    ["Quel instrument joue-t-on principalement avec les pieds et les mains dans une église ?", "L’orgue", "Le clavecin", "L’accordéon", "Le hautbois"],
-    ["Quelle chanteuse a sorti l’album 1989 ?", "Taylor Swift", "Billie Eilish", "Katy Perry", "Lady Gaga"],
-    ["Quelle chanteuse est à l’origine de Single Ladies ?", "Beyoncé", "Shakira", "Ariana Grande", "Christina Aguilera"],
-    ["Quel groupe britannique a sorti Wonderwall ?", "Oasis", "Blur", "Pulp", "Suede"],
-    ["Quel groupe a sorti « Get Lucky » avec Pharrell Williams ?", "Daft Punk", "Justice", "Air", "Cassius"],
-    ["Quel instrument joue le personnage de Miguel dans Coco ?", "La guitare", "Le piano", "Le violon", "La batterie"],
-    ["Quel artiste chante Heroes ?", "David Bowie", "Elton John", "Rod Stewart", "Phil Collins"],
-    ["Quel groupe a sorti l’album The Dark Side of the Moon ?", "Pink Floyd", "Genesis", "Led Zeppelin", "The Who"],
-    ["Quel compositeur a écrit l’opéra Carmen ?", "Georges Bizet", "Giuseppe Verdi", "Charles Gounod", "Giacomo Puccini"],
-    ["Quel chanteur interprète « Place des grands hommes » ?", "Patrick Bruel", "Patrick Fiori", "Florent Pagny", "Jean-Jacques Goldman"],
-  ],
-  sciences: [
-    ["Combien de pattes a une araignée ?", "8", "6", "10", "12"],
-    ["Quel est le symbole chimique de l’or ?", "Au", "Ag", "Or", "Fe"],
-    ["Quelle planète est surnommée « la planète rouge » ?", "Mars", "Vénus", "Jupiter", "Mercure"],
-    ["Combien de dents compte une dentition adulte complète, dents de sagesse incluses ?", "32", "28", "30", "36"],
-    ["Quelle pierre précieuse est la plus dure ?", "Diamant", "Rubis", "Émeraude", "Saphir"],
-    ["Quel est l’animal terrestre le plus rapide ?", "Guépard", "Lion", "Autruche", "Lévrier"],
-    ["Quel gaz est le plus abondant dans l’atmosphère terrestre ?", "Azote", "Oxygène", "Dioxyde de carbone", "Hydrogène"],
-    ["Qui a découvert la pénicilline ?", "Alexander Fleming", "Pasteur", "Curie", "Koch"],
-    ["Quel organe pompe le sang ?", "Le cœur", "Le foie", "Le rein", "Le poumon"],
-    ["Quel gaz les plantes utilisent-elles pour la photosynthèse ?", "Le dioxyde de carbone", "L’hélium", "Le néon", "L’argon"],
-    ["Quel est le satellite naturel de la Terre ?", "La Lune", "Mars", "Vénus", "Titan"],
-    ["Quel animal est un mammifère ?", "Le dauphin", "Le requin", "La truite", "Le thon"],
-    ["À pression atmosphérique normale, à quelle température l’eau pure gèle-t-elle ?", "0 °C", "10 °C", "–10 °C", "100 °C"],
-    ["Quel organe se trouve dans la boîte crânienne ?", "Le cerveau", "Le foie", "L’estomac", "Le pancréas"],
-    ["Quel animal fabrique des perles naturelles ?", "Une huître perlière", "Un homard", "Une méduse", "Un oursin"],
-    ["Quelle planète est la plus proche du Soleil ?", "Mercure", "Vénus", "Mars", "Neptune"],
-    ["Quelle est l’unité de mesure de la température dans le Système international ?", "Le kelvin", "Le watt", "Le joule", "Le pascal"],
-    ["Quel est le symbole chimique de l’oxygène ?", "O", "Ox", "Og", "Om"],
-    ["Quelle force garde la Lune en orbite autour de la Terre ?", "La gravitation", "Le magnétisme", "La friction", "La poussée d’Archimède"],
-    ["Quel adulte possède forcément des ailes couvertes d’écailles parmi ces insectes ?", "Le papillon", "La libellule", "Le moustique", "La sauterelle"],
-    ["Quel est le plus grand organe du corps humain ?", "La peau", "Le foie", "Les poumons", "Le cerveau"],
-    ["Quel métal est liquide à température ambiante ordinaire ?", "Le mercure", "Le fer", "L’or", "Le cuivre"],
-    ["Quel astre se trouve au centre du Système solaire ?", "Le Soleil", "La Terre", "Jupiter", "La Lune"],
-    ["Sur l’échelle usuelle, à quel pH une solution est-elle neutre à 25 °C ?", "7", "0", "3", "14"],
-    ["Quel groupe sanguin est donneur universel de globules rouges dans le système ABO et Rh ?", "O négatif", "AB positif", "A positif", "B négatif"],
-    ["Quelle partie de la plante absorbe principalement l’eau du sol ?", "Les racines", "Les fleurs", "Les fruits", "Les pétales"],
-    ["Qu’est-ce qui transporte la lumière du Soleil jusqu’à nous ?", "Des ondes électromagnétiques", "Des ondes sonores", "Du vent terrestre", "Des courants d’eau"],
-    ["Quel animal possède un squelette externe ?", "Le crabe", "La grenouille", "Le saumon", "Le lézard"],
-    ["Comment s’appelle le passage de l’état liquide à l’état gazeux ?", "La vaporisation", "La solidification", "La fusion", "La condensation"],
-    ["Combien d’atomes d’hydrogène contient une molécule d’eau ?", "2", "1", "3", "4"],
-    ["Quelle vitamine est synthétisée par la peau sous l’effet des UVB ?", "D", "C", "B12", "K"],
-    ["Quel est le nom du processus par lequel une cellule se divise en deux cellules génétiquement identiques ?", "La mitose", "La digestion", "La fermentation", "La pollinisation"],
-    ["Quel appareil mesure la pression atmosphérique ?", "Un baromètre", "Un sismographe", "Un anémomètre", "Un altimètre"],
-  ],
-  fun: [
-    ["De quelle couleur est le cheval blanc d’Henri IV ?", "Blanc", "Noir", "Gris", "Alezan"],
-    ["Que signifie « avoir un chat dans la gorge » ?", "Être enroué", "Avoir faim", "Être timide", "Mentir"],
-    ["Quel animal ferait un carton au rayon glaçons grâce à ses crottes cubiques ?", "Le wombat", "Le panda", "Le tapir", "Le kangourou"],
-    ["Quel animal a trois cœurs, même sans être amoureux ?", "Le poulpe", "Le dauphin", "La sardine", "Le pingouin"],
-    ["Quel animal ne peut pas tirer la langue parce qu’une membrane la maintient au fond de sa gueule ?", "Un crocodile", "Une girafe", "Un chien", "Un caméléon"],
-    ["Quel poisson des Galápagos a naturellement des lèvres rouge vif ?", "Le poisson-chauve-souris des Galápagos", "Le cabillaud", "Le bar commun", "La raie manta"],
-    ["Quel animal a des empreintes digitales qui ressemblent à celles des humains ?", "Le koala", "Le manchot", "La girafe", "Le dromadaire"],
-    ["Combien de bras possède généralement une étoile de mer commune ?", "Cinq", "Deux", "Trois", "Sept"],
-    ["Quel animal se roule en boule avec ses écailles ?", "Le pangolin", "Le suricate", "Le capybara", "Le lama"],
-    ["Quel animal est célèbre pour pouvoir régénérer une patte entière ?", "L’axolotl", "Le furet", "Le hibou", "Le loup"],
-    ["En botanique, lequel de ces fruits est une baie ?", "La banane", "La fraise", "La pomme", "La pêche"],
-    ["Quel animal possède une trompe qui se déroule pour boire le nectar ?", "Le papillon", "Le hérisson", "Le pigeon", "La grenouille"],
-    ["De quelle couleur peut devenir le sang d’une limule au contact de l’oxygène ?", "Bleu", "Vert fluo", "Orange", "Noir"],
-    ["Quel animal utilise parfois une pierre pour ouvrir le repas du jour, version coquillage ?", "La loutre de mer", "L’orque", "Le puffin", "Le lamantin"],
-    ["Dans quel pays peut-on trouver un village qui s’appelle Y ?", "France", "Belgique", "Suisse", "Italie"],
-    ["Quel nom, aussi utilisé en anglais pour un préservatif, est celui d’une ville du Gers ?", "Condom", "Foix", "Cahors", "Auch"],
-    ["Que projette une seiche pour distraire un prédateur ?", "De l’encre", "De la mousse", "Du sable uniquement", "Des étincelles"],
-    ["Quelle sorte de bestiole est un « cafard », quand ce n’est pas ton moral du dimanche soir ?", "Un insecte", "Un crustacé", "Un mollusque", "Un amphibien"],
-    ["Quel nom donne-t-on à un ensemble de 144 objets, soit douze douzaines ?", "Une grosse", "Une vingtaine", "Une paire", "Une centaine"],
-    ["Quel animal peut se défendre en projetant un jet malodorant, sans le moindre déodorant ?", "La mouffette", "La marmotte", "Le renne", "Le lièvre"],
-    ["Dans les blagues, quel animal dit « coin-coin », mais ne travaille jamais à la banque ?", "Le canard", "Le merle", "Le coucou", "L’autruche"],
-    ["Quel aliment est techniquement une légumineuse, même si on le grignote à l’apéro comme une noix ?", "La cacahuète", "La noisette", "La noix de cajou", "L’amande"],
-    ["Quel fromage sarde est connu pour ses larves vivantes ?", "Le casu marzu", "Le parmesan", "La burrata", "Le gorgonzola"],
-    ["Quel oiseau peut faire du vol stationnaire et même reculer en volant ?", "Le colibri", "Le pigeon", "Le moineau", "Le cygne"],
-    ["Comment s’appelle un mot qui se lit pareil dans les deux sens, comme « kayak » ?", "Un palindrome", "Un anagramme", "Un oxymore", "Un synonyme"],
-    ["Dans quelle ville se trouve le Manneken-Pis, célèbre statue d’un garçon qui fait pipi ?", "Bruxelles", "Genève", "Lille", "Amsterdam"],
-    ["Quelle planète a un jour sidéral plus long que son année ?", "Vénus", "Jupiter", "Saturne", "Mars"],
-  ],
-};
+const headers = [
+  'Catégorie', 'Série', 'Question', 'Bonne réponse',
+  'Mauvaise réponse 1', 'Mauvaise réponse 2', 'Mauvaise réponse 3',
+];
 
-module.exports = { categories, bank };
+function readQuestions(csv) {
+  const firstLine = csv.replace(/^\uFEFF/, '').split(/\r?\n/, 1)[0];
+  const delimiter = firstLine.includes(';') ? ';' : ',';
+  let rows;
+  try {
+    rows = parse(csv, { bom: true, delimiter, skip_empty_lines: true, trim: true });
+  } catch (error) {
+    throw new Error(`CSV invalide à la ligne ${error.lines || '?'} : vérifie les colonnes et les guillemets.`);
+  }
+  const columns = rows.shift();
+  if (!columns || columns.length !== headers.length ||
+      columns.some((column, index) => column !== headers[index])) {
+    throw new Error('Les titres de colonnes ne correspondent pas au modèle. Garde la première ligne intacte.');
+  }
+  return rows.flatMap((row, index) => {
+    const [category, series, question, ...options] = row.map(value => value.trim());
+    if (row.every(value => !value.trim())) return [];
+    if ((!category && !series) || !question || options.some(value => !value)) {
+      throw new Error(`Ligne de données ${index + 1} : renseigne une catégorie ou une série, la question et les quatre réponses.`);
+    }
+    if (new Set(options.map(value => value.toLocaleLowerCase('fr'))).size !== 4) {
+      throw new Error(`Ligne de données ${index + 1} : les quatre réponses doivent être différentes.`);
+    }
+    return { category, series, question, options };
+  });
+}
+
+function groupQuestions(rows, field) {
+  const groups = new Map();
+  for (const row of rows) {
+    const name = row[field];
+    if (!groups.has(name)) groups.set(name, []);
+    const questions = groups.get(name);
+    if (questions.some(existing => existing.question === row.question)) {
+      throw new Error(`Question en double dans « ${name} » : ${row.question}`);
+    }
+    questions.push(row);
+  }
+  return groups;
+}
+
+const base = readQuestions(readFileSync(join(__dirname, 'questions.csv'), 'utf8'));
+const categories = groupQuestions(base.filter(row => !row.series), 'category');
+const series = groupQuestions(base.filter(row => row.series), 'series');
+
+function importSeries(csv) {
+  const rows = readQuestions(csv);
+  if (!rows.length || rows.some(row => !row.series)) {
+    throw new Error('Indique un nom dans la colonne Série pour chaque question du fichier personnalisé.');
+  }
+  return groupQuestions(rows, 'series');
+}
+
+module.exports = { categories, series, importSeries };

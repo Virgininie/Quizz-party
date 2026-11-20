@@ -19,6 +19,15 @@ function game(){
   if(!me)return'<p>Tu n’es plus dans ce salon. Recharge la page.</p>';
   if(ph==='lobby')return`<h2>${esc(me.name)}</h2>`+(me.ready?'<h1>✅</h1><p>En attente des autres joueurs</p>':'<button id="rd" style="font-size:1.6em;padding:24px 48px">Prêt !</button>');
   if(!me.inGame)return late;
+  if (v.mode === 'blind' && ph.startsWith('music')) {
+    if (ph === 'musicSetup') return '<h1>Blind test</h1><p>Le maître du jeu choisit le thème.</p>';
+    const prefix = `<p class="muted">Morceau ${v.qi + 1} / ${v.n}</p>`;
+    if (ph === 'musicReveal') return prefix + `<h1>${esc(v.reveal.title)}</h1><p>${esc(v.reveal.artist)}</p>`;
+    if (v.active === pid) return prefix + '<h1>À toi de répondre !</h1><p>Réponds à l’oral.</p>';
+    if (ph === 'musicLoad') return prefix + '<h1>Prépare-toi…</h1>';
+    if (v.buzzed) return prefix + '<h1>Buzz enregistré</h1><p>Regarde le grand écran.</p>';
+    return prefix + '<button id="buzz" class="buzzer">BUZZ !</button>';
+  }
   if (ph === 'question' || ph === 'correction') {
     const correction = ph === 'correction';
     const choice = v.choice ?? pending;
@@ -48,12 +57,13 @@ function render(){
   else h=game();
   const me = joined && st?.players.find(p => p.id === pid);
   const place = me && st.rank.find(p => p.id === pid)?.place;
-  const points = st?.phase === 'correction' && st.result?.pts;
+  const points = ['correction', 'musicReveal'].includes(st?.phase) && st.result?.pts;
   const animate = points && st.qi !== lastAnimated;
   if (animate) lastAnimated = st.qi;
-  const score = me ? `<div class="score-strip"><span><strong>${me.score} pts</strong>${animate ? `<b class="score-gain">+${points}</b>` : ''}</span><span>${place ? (place === 1 ? '1er' : place + 'ᵉ') : '—'} · Rang</span></div>` : '';
+  const score = me ? `<div class="score-strip"><span><strong>${me.score} pts</strong>${animate ? `<b class="score-gain">${points > 0 ? '+' : ''}${points}</b>` : ''}</span><span>${place ? (place === 1 ? '1er' : place + 'ᵉ') : '—'} · Rang</span></div>` : '';
   $('app').innerHTML=score+h;
   if($('go'))$('go').onclick=()=>{const n=$('nm').value.trim();if(n)join(n)};
+  if($('buzz'))$('buzz').onclick=()=>{ $('buzz').disabled=true; s.emit('buzz',st.qi); };
   if($('rd'))$('rd').onclick=()=>s.emit('ready');
   document.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{pending=+b.dataset.i;s.emit('answer',pending);render()});
 }

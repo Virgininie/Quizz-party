@@ -7,8 +7,38 @@ const escapeHtml = text => String(text).replace(/[&<>"]/g, char => (
   {'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[char]
 ));
 const medals = ['🥇', '🥈', '🥉'];
-let state, deadline, lastSecond, audio, category = 'mixte';
+let state, deadline, lastSecond, audio, category = 'mixte', importStatus = '';
 let sound = localStorage.getItem('quiz-sound') !== 'off';
+const music = new Audio();
+music.preload = 'auto';
+music.muted = !sound;
+let musicKey, audioError = '', theme = '', searchStatus = '', searching = false;
+
+async function playMusic() {
+  const v = state;
+  if (!v?.preview) return;
+  const key = `${v.code}:${v.qi}:${v.offset}`;
+  musicKey = key;
+  audioError = '';
+  try {
+    if (music.src !== v.preview) music.src = v.preview;
+    music.currentTime = v.offset / 1000;
+    await music.play();
+    if (state.phase === 'musicLoad' && state.qi === v.qi && musicKey === key) {
+      socket.emit('host:playing', v.qi);
+    }
+  } catch {
+    if (!['musicLoad', 'musicPlay'].includes(state.phase) || state.qi !== v.qi || musicKey !== key) return;
+    audioError = 'Lecture impossible. Réessaie ou passe cet extrait.';
+    render();
+  }
+}
+music.onended = () => socket.emit('host:musicEnded', state.qi);
+music.onerror = () => {
+  if (!['musicLoad', 'musicPlay'].includes(state?.phase)) return;
+  audioError = 'Extrait indisponible. Tu peux passer au morceau suivant.';
+  render();
+};
 
 function enableAudio() {
   if (!sound) return;
@@ -36,6 +66,7 @@ function labelSound() {
 }
 $('sound').onclick = () => {
   sound = !sound;
+  music.muted = !sound;
   localStorage.setItem('quiz-sound', sound ? 'on' : 'off');
   if (sound) enableAudio();
   else if (audio?.state === 'running') audio.suspend().catch(() => {});
@@ -50,16 +81,30 @@ socket.on('connect', () => {
 });
 
 socket.on('state', next => {
+  const wasPlaying = ['musicLoad', 'musicPlay'].includes(state?.phase);
+  const previousRound = state?.qi;
+  const previouslyJudging = state?.phase === 'musicJudge';
+  const previousBip = state?.bip;
   const changed = !state || state.code !== next.code || state.phase !== next.phase || state.qi !== next.qi;
   state = next;
   deadline = Date.now() + next.left;
+  const playingMusic = ['musicLoad', 'musicPlay'].includes(next.phase);
+  if (playingMusic && (!wasPlaying || previousRound !== next.qi)) playMusic();
+  if (!playingMusic) {
+    music.pause();
+    musicKey = null;
+    audioError = '';
+  }
+  if (previousRound === next.qi && next.bip > (previousBip || 0)) beep(310);
   if (changed) {
     lastSecond = null;
     if (next.phase === 'countdown') [523, 659, 784, 1047].forEach((note, i) => beep(note, i * .13));
   }
   if (!changed && next.phase === 'question' && $('received')) {
     $('received').textContent = `${next.received} / ${next.total} réponses`;
-  } else if (changed || ['lobby', 'categories'].includes(next.phase)) {
+  } else if (previouslyJudging && !changed && $('buzz-queue')) {
+    $('buzz-queue').innerHTML = buzzQueue(next);
+  } else if (changed || ['lobby', 'categories', 'musicSetup', 'musicQueue', 'musicSpeak', 'musicJudge'].includes(next.phase)) {
     render();
   }
   tick();
@@ -91,6 +136,13 @@ function correction(v) {
     : ''}`;
 }
 
+function buzzQueue(v) {
+  return v.queue.map((id, i) => {
+    const player = v.players.find(p => p.id === id);
+    return `<button data-turn="${escapeHtml(id)}" ${v.phase === 'musicQueue' && i === 0 ? '' : 'disabled'}>${i + 1}. ${escapeHtml(player.name)}</button>`;
+  }).join('');
+}
+
 function render() {
   const v = state;
   let html = '', event;
@@ -98,31 +150,97 @@ function render() {
     case 'lobby': {
       const online = v.players.filter(player => player.online);
       const ready = online.length && online.every(player => player.ready);
-      event = 'host:rules';
+
       html = `<h1>🎉 Quiz Party</h1><div class="row"><div class="qr">
         <img src="/qr/${v.code}" alt="QR code pour rejoindre"><p>Scannez pour jouer<br>Code <b>${v.code}</b></p></div>
         <div><h2>Joueurs (${v.players.length}/10)</h2><div class="grid">${v.players.map(player =>
           `<div class="card ${player.online ? '' : 'off'}">${avatar(player)}<span class="nm">${escapeHtml(player.name)}</span>${player.ready ? '✅' : '⏳'}</div>`
-        ).join('')}</div></div></div><button id="action" ${ready ? '' : 'disabled'}>${ready ? 'Voir les règles' : 'En attente des joueurs…'}</button>`;
+        ).join('')}</div></div></div>
+        <button data-mode="quiz" ${ready ? '' : 'disabled'}>Quiz</button>
+        <button data-mode="blind" ${ready ? '' : 'disabled'}>Blind test</button>
+        ${ready ? '' : '<p>En attente des joueurs…</p>'}`;
       break;
     }
     case 'rules':
       event = 'host:categories';
+      if (v.mode === 'blind') {
+        html = `<h1>Les règles du blind test</h1><ul>
+          <li>Écoutez jusqu’à 15 secondes et buzzez sur votre téléphone.</li>
+          <li>Répondez à l’oral quand l’animateur vous donne la parole. Vous avez 3 secondes.</li>
+          <li>Titre et artiste · 1 point chacun. Réponse entièrement fausse ou hors délai · −1 point.</li>
+          <li>Les autres joueurs peuvent buzzer pour prendre leur tour.</li>
+          </ul><br><button id="action">Choisir le thème musical</button><button data-back>Changer de mode</button>`;
+        break;
+      }
       html = `<h1>Les règles</h1><ul>
-        <li>${v.n} questions, 10 secondes pour répondre</li><li>Votre premier choix est définitif</li>
+        <li>25 questions pour les catégories standard. 10 secondes pour répondre.</li><li>Votre premier choix est définitif</li>
         <li>Première bonne réponse · 2 points</li><li>Autres bonnes réponses · 1 point</li>
         <li>Mauvaise réponse ou absence de réponse · 0 point</li><li>Classement après les questions 5, 10, 15 et 20</li>
-        </ul><br><button id="action">Choisir la catégorie</button>`;
+        </ul><br><button id="action">Choisir la catégorie</button><button data-back>Changer de mode</button>`;
       break;
-    case 'categories':
-      html = `<h1>Choisissez une catégorie</h1><form id="categories"><div class="category-grid">
-        ${Object.entries(v.categories).map(([id, label]) =>
-          `<label><input type="radio" name="category" value="${id}" ${category === id ? 'checked' : ''}><span>${escapeHtml(label)}</span></label>`
-        ).join('')}</div><button>Valider et lancer la partie</button></form>`;
+    case 'categories': {
+      if (!v.packs.some(pack => pack.id === category)) category = v.packs[0]?.id;
+      const choices = packs => packs.map(pack =>
+        `<label><input type="radio" name="category" value="${escapeHtml(pack.id)}" ${category === pack.id ? 'checked' : ''}>
+        <span>${escapeHtml(pack.label)}<small>${pack.count} question${pack.count === 1 ? '' : 's'}</small></span></label>`
+      ).join('');
+      const custom = v.packs.filter(pack => pack.custom);
+      html = `<h1>Choisissez une catégorie</h1><form id="categories">
+        <div class="category-grid">${choices(v.packs.filter(pack => !pack.custom))}</div>
+        ${custom.length ? `<h2>Séries personnalisées</h2><div class="category-grid">${choices(custom)}</div>` : ''}
+        <button>Valider et lancer la partie</button></form>
+        <label class="import-button">Importer un CSV personnalisé<input id="import-csv" type="file" accept=".csv,text/csv"></label>
+        <p role="status" id="import-status">${escapeHtml(importStatus)}</p>`;
+      break;
+    }
+    case 'musicSetup':
+      html = `<h1>Blind test Deezer</h1><form id="music-search">
+        <label for="theme">Thème musical</label>
+        <select id="theme" name="theme">${v.themes.map(name =>
+          `<option ${name === theme ? 'selected' : ''}>${escapeHtml(name)}</option>`
+        ).join('')}</select>
+        <button ${searching ? 'disabled' : ''}>Charger les extraits</button></form>
+        <p id="search-status" role="status">${escapeHtml(searchStatus)}</p>
+        ${v.trackCount ? `<button id="music-start">Jouer · ${v.trackCount} extrait${v.trackCount > 1 ? 's' : ''}</button>` : ''}
+        <button data-back ${searching ? 'disabled' : ''}>Changer de mode</button>`;
+      break;
+    case 'musicLoad':
+    case 'musicPlay':
+      html = `<div class="muted">Morceau ${v.qi + 1} / ${v.n}</div>
+        <h1>${v.phase === 'musicPlay' ? 'Écoutez… et buzzez !' : 'Chargement de l’extrait…'}</h1>
+        <div class="music-disc" aria-hidden="true">💿</div>
+        ${v.phase === 'musicPlay' ? '<div class="big" id="cd"></div>' : ''}
+        ${audioError ? `<p role="status">${escapeHtml(audioError)}</p><button id="retry-music">Réessayer la lecture</button>` : ''}
+        <button id="skip-music">Passer l’extrait</button>`;
+      break;
+    case 'musicQueue':
+    case 'musicSpeak':
+    case 'musicJudge': {
+      const active = v.players.find(p => p.id === v.active);
+      html = `<div class="muted">Morceau ${v.qi + 1} / ${v.n}</div>
+        <h1>${active ? `À toi, ${escapeHtml(active.name)} !` : 'Qui a buzzé ?'}</h1>`;
+      if (v.phase === 'musicSpeak') html += '<div class="big" id="cd"></div><button id="heard">Réponse donnée</button>';
+      if (v.phase === 'musicJudge') {
+        const { title, artist, found } = v.judge;
+        html += `<form id="judge"><label><input type="checkbox" name="title" ${found.title ? 'disabled checked' : ''}> Titre correct${found.title ? ' (déjà trouvé)' : ''}</label>
+          <label><input type="checkbox" name="artist" ${found.artist ? 'disabled checked' : ''}> Artiste correct${found.artist ? ' (déjà trouvé)' : ''}</label>
+          <button>Valider la réponse</button><button id="wrong" type="button">Réponse fausse</button></form>
+          <details><summary>Voir la solution sur la télé</summary><p>${escapeHtml(title)} · ${escapeHtml(artist)}</p></details>`;
+      }
+      html += `<div id="buzz-queue" class="buzz-queue">${buzzQueue(v)}</div>`;
+      break;
+    }
+    case 'musicReveal':
+      html = `<div class="muted">Morceau ${v.qi + 1} / ${v.n}</div><h1>${escapeHtml(v.reveal.title)}</h1>
+        <h2>${escapeHtml(v.reveal.artist)}</h2><p><a href="https://www.deezer.com/track/${v.reveal.id}" target="_blank" rel="noopener noreferrer">Écouter sur Deezer</a></p>
+        ${v.players.filter(p => v.results[p.id]).map(p => {
+          const pts = v.results[p.id].pts;
+          return `<div class="card"><span class="nm">${escapeHtml(p.name)}</span><b>${pts > 0 ? '+' : ''}${pts} pts</b></div>`;
+        }).join('')}`;
       break;
     case 'countdown':
     case 'next':
-      html = `<h1>${v.phase === 'countdown' ? 'La partie commence !' : 'Question suivante'}</h1><div class="big" id="cd"></div>`;
+      html = `<h1>${v.phase === 'countdown' ? 'La partie commence !' : (v.mode === 'blind' ? 'Morceau suivant' : 'Question suivante')}</h1><div class="big" id="cd"></div>`;
       break;
     case 'question':
     case 'correction':
@@ -133,7 +251,7 @@ function render() {
         </div><p id="received">${v.received} / ${v.total} réponses</p>`;
       break;
     case 'ranking':
-      html = `<h1>Classement après ${v.qi + 1} questions</h1>${ranking(v.rank)}`;
+      html = `<h1>Classement après ${v.qi + 1} ${v.mode === 'blind' ? 'morceaux' : 'questions'}</h1>${ranking(v.rank)}`;
       break;
     case 'final':
       event = 'host:again';
@@ -144,6 +262,72 @@ function render() {
   }
   $('app').innerHTML = html;
   if (event) $('action').onclick = () => { enableAudio(); socket.emit(event); };
+  document.querySelectorAll('[data-mode]').forEach(button => {
+    button.onclick = () => { enableAudio(); socket.emit('host:rules', button.dataset.mode); };
+  });
+  document.querySelectorAll('[data-back]').forEach(button => {
+    button.onclick = () => { searchStatus = ''; socket.emit('host:back'); };
+  });
+  document.querySelectorAll('[data-turn]').forEach(button => {
+    button.onclick = () => socket.emit('host:giveTurn', v.qi, button.dataset.turn);
+  });
+  const search = $('music-search');
+  if (search) search.onsubmit = event => {
+    event.preventDefault();
+    if (searching) return;
+    theme = new FormData(search).get('theme');
+    searching = true;
+    searchStatus = 'Recherche des extraits Deezer…';
+    render();
+    socket.timeout(10000).emit('host:tracks', theme, (error, result) => {
+      searching = false;
+      searchStatus = error ? 'Deezer met trop de temps à répondre. Réessaie.' :
+        result.error || `${result.count} extrait${result.count > 1 ? 's disponibles' : ' disponible'}.`;
+      if (state.phase === 'musicSetup') render();
+    });
+  };
+  if ($('music-start')) $('music-start').onclick = () => {
+    enableAudio();
+    // Unlock this media element during the host gesture for Safari.
+    music.src = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQIAAACAgA==';
+    music.play().catch(() => {});
+    socket.emit('host:music');
+  };
+  if ($('retry-music')) $('retry-music').onclick = playMusic;
+  if ($('skip-music')) $('skip-music').onclick = () => socket.emit('host:musicEnded', v.qi);
+  if ($('heard')) $('heard').onclick = () => socket.emit('host:heard', v.qi, v.active);
+  const judge = $('judge');
+  if (judge) {
+    judge.onsubmit = event => {
+      event.preventDefault();
+      const verdict = new FormData(judge);
+      socket.emit('host:judge', v.qi, v.active, { title: verdict.has('title'), artist: verdict.has('artist') });
+    };
+    $('wrong').onclick = () => socket.emit('host:judge', v.qi, v.active, {});
+  }
+  const input = $('import-csv');
+  if (input) input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    const report = message => {
+      importStatus = message;
+      if ($('import-status')) $('import-status').textContent = message;
+    };
+    if (file.size > 250000) {
+      report('Le fichier CSV doit faire moins de 250 Ko.');
+      return;
+    }
+    try {
+      const csv = await file.text();
+      socket.timeout(5000).emit('host:import', csv, (error, result) => {
+        if (error) report('Impossible d’importer le fichier. Réessaie.');
+        else if (result.error) report(result.error);
+        else report(`${result.count} série${result.count > 1 ? 's' : ''} importée${result.count > 1 ? 's' : ''}.`);
+      });
+    } catch {
+      report('Impossible de lire le fichier CSV.');
+    }
+  };
   const form = $('categories');
   if (form) {
     form.onchange = () => { category = new FormData(form).get('category'); };
