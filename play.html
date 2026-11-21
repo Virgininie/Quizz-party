@@ -1,23 +1,26 @@
 <!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Quiz Party</title><link rel="stylesheet" href="style.css"></head>
 <body class="ph"><div id="app"></div>
 <script src="/socket.io/socket.io.js"></script>
+<script src="avatars.js"></script>
 <script>
 const s=io(),$=i=>document.getElementById(i),code=(new URLSearchParams(location.search).get('r')||'').toUpperCase();
 const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const pid=localStorage.pid||(localStorage.pid=Math.random().toString(36).slice(2)+Date.now().toString(36));
-let st=null,joined=false,msg='',dl=0,pending=null,lastAnimated=-1;
-function join(name){s.emit('join',{code,pid,name},r=>{if(r.ok){joined=true;msg='';localStorage.name=name;localStorage.room=code}else msg=r.late?'late':r.err;render()})}
+let st=null,joined=false,msg='',dl=0,pending=null,lastAnimated=-1,placeBefore=null,lastClimb=-1,draftName='';
+let myAvatar=localStorage.avatar!=null?+localStorage.avatar:null;
+function join(name){s.emit('join',{code,pid,name,avatar:myAvatar},r=>{if(r.ok){joined=true;msg='';localStorage.name=name;localStorage.room=code}else msg=r.late?'late':r.err;render()})}
 s.on('connect',()=>{if(localStorage.room===code&&localStorage.name)join(localStorage.name);else render()});
 s.on('state',v=>{
   if (v.phase !== 'question' || v.choice !== null || v.qi !== st?.qi) pending = null;
   if (v.phase === 'lobby') lastAnimated = -1;
   st=v;dl=Date.now()+v.left;render();
 });
+function avatarPicker(cur){return`<div class="avatar-grid">${AVATARS.map((a,i)=>`<button type="button" data-av="${i}" aria-pressed="${i===cur}" aria-label="${a[2]}">${avatarHtml({avatar:i,name:''})}</button>`).join('')}</div>`}
 const late='<h1>⏳</h1><p>Partie en cours — tu pourras rejoindre la prochaine.</p>';
 function game(){
   const v=st,me=v.players.find(p=>p.id===pid),ph=v.phase;
   if(!me)return'<p>Tu n’es plus dans ce salon. Recharge la page.</p>';
-  if(ph==='lobby')return`<h2>${esc(me.name)}</h2>`+(me.ready?'<h1>✅</h1><p>En attente des autres joueurs</p>':'<button id="rd" style="font-size:1.6em;padding:24px 48px">Prêt !</button>');
+  if(ph==='lobby')return`<h2>${esc(me.name)}</h2>`+(me.ready?'<h1>✅</h1><p>En attente des autres joueurs</p>':'<button id="rd" style="font-size:1.6em;padding:24px 48px">Prêt !</button>')+`<p class="muted">Ton avatar</p>`+avatarPicker(me.avatar??myAvatar);
   if(!me.inGame)return late;
   if (v.mode === 'blind' && ph.startsWith('music')) {
     if (ph === 'musicSetup') return '<h1>Blind test</h1><p>Le maître du jeu choisit le thème.</p>';
@@ -40,8 +43,8 @@ function game(){
     }).join('');
     const feedback = correction
       ? choice === null ? 'Sans réponse' : v.result?.ok ? 'Bonne réponse !' : 'Réponse incorrecte'
-      : v.choice !== null ? 'Réponse enregistrée' : choice !== null ? 'Envoi de la réponse…' : '';
-    return `<div class="muted">Question ${v.qi+1} / ${v.n}</div><h1 class="phone-question">${esc(v.q)}</h1><p aria-live="polite">${feedback}</p><div class="opts">${options}</div>`;
+      : v.choice !== null ? 'Réponse enregistrée ✓' : choice !== null ? 'Envoi de la réponse…' : '';
+    return `<div class="muted">${v.cat?catEmoji(v.cat)+' ':''}Question ${v.qi+1} / ${v.n}</div><h1 class="phone-question">${esc(v.q)}</h1><p aria-live="polite">${feedback}</p><div class="opts">${options}</div>`;
   }
   if (ph === 'categories') return '<h1>Choix de la catégorie</h1><p>Regarde le grand écran.</p>';
   if (ph === 'rules') return '<h1>Les règles</h1><p>Regarde le grand écran.</p>';
@@ -52,7 +55,7 @@ function render(){
   let h;
   if(!code)h='<h1>Quiz Party</h1><p>Scanne le QR code affiché sur le grand écran.</p>';
   else if(msg==='late')h=late;
-  else if(!joined)h=`<h1>🎉 Rejoindre</h1><input id="nm" maxlength="14" placeholder="Ton pseudo"><br><button id="go">Rejoindre</button><p>${esc(msg)}</p>`;
+  else if(!joined)h=`<h1>🎉 Rejoindre</h1><div class="big-av-wrap">${avatarHtml({avatar:myAvatar,name:draftName||'?'})}</div><input id="nm" maxlength="14" placeholder="Ton pseudo" value="${esc(draftName)}"><p class="muted">Choisis ton avatar (facultatif)</p>${avatarPicker(myAvatar)}<button id="go">Rejoindre</button><p>${esc(msg)}</p>`;
   else if(!st)h='<p>Connexion…</p>';
   else h=game();
   const me = joined && st?.players.find(p => p.id === pid);
@@ -60,11 +63,16 @@ function render(){
   const points = ['correction', 'musicReveal'].includes(st?.phase) && st.result?.pts;
   const animate = points && st.qi !== lastAnimated;
   if (animate) lastAnimated = st.qi;
-  const score = me ? `<div class="score-strip"><span><strong>${me.score} pts</strong>${animate ? `<b class="score-gain">${points > 0 ? '+' : ''}${points}</b>` : ''}</span><span>${place ? (place === 1 ? '1er' : place + 'ᵉ') : '—'} · Rang</span></div>` : '';
+  if (st?.phase === 'question' && place) placeBefore = { qi: st.qi, place };
+  const climbed = st?.phase === 'correction' && place && placeBefore?.qi === st.qi && placeBefore.place > place && st.qi !== lastClimb ? placeBefore.place - place : 0;
+  if (climbed) lastClimb = st.qi;
+  const score = me ? `<div class="score-strip"><span>${avatarHtml(me)} <strong>${me.score} pts</strong>${animate ? `<b class="score-gain">${points > 0 ? '+' : ''}${points}</b>` : ''}</span><span>${place ? (place === 1 ? '1er' : place + 'ᵉ') : '—'} · Rang${climbed ? `<b class="rank-up">▲${climbed}</b>` : ''}</span></div>` : '';
   $('app').innerHTML=score+h;
   if($('go'))$('go').onclick=()=>{const n=$('nm').value.trim();if(n)join(n)};
   if($('buzz'))$('buzz').onclick=()=>{ $('buzz').disabled=true; s.emit('buzz',st.qi); };
   if($('rd'))$('rd').onclick=()=>s.emit('ready');
+  if($('nm'))$('nm').oninput=e=>{draftName=e.target.value};
+  document.querySelectorAll('[data-av]').forEach(b=>b.onclick=()=>{myAvatar=+b.dataset.av;localStorage.avatar=myAvatar;if(joined)s.emit('avatar',myAvatar);else if($('nm'))draftName=$('nm').value;render()});
   document.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{pending=+b.dataset.i;s.emit('answer',pending);render()});
 }
 setInterval(()=>{if(!st)return;const l=Math.max(0,dl-Date.now());if($('cd'))$('cd').textContent=Math.ceil(l/1000)},100);

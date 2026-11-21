@@ -38,16 +38,16 @@ function mixedQuestions() {
 function makeQuestions(id, pack) {
   const rows = id === 'mixte' ? mixedQuestions()
     : pack.custom ? pack.rows : shuffle(pack.rows).slice(0, N);
-  return rows.map(({ question, options }) => {
+  return rows.map(({ question, options, category, series }) => {
     const o = shuffle(options);
-    return { q: question, o, c: o.indexOf(options[0]) };
+    return { q: question, o, c: o.indexOf(options[0]), cat: category || series };
   });
 }
 
 const app = express();
 app.set('trust proxy', true);
 
-for (const file of ['tv.html', 'play.html', 'style.css']) {
+for (const file of ['tv.html', 'play.html', 'style.css', 'avatars.js']) {
   app.get('/' + file, (req, res) => res.sendFile(file, { root: __dirname }));
 }
 app.get('/',(q,r)=>r.redirect('/tv.html'));
@@ -60,9 +60,10 @@ app.get('/qr/:c',async(req,res)=>{
 });
 const rank=l=>{const s=[...l].sort((a,b)=>b.score-a.score);let p=0,last=null;return s.map((x,i)=>{if(x.score!==last){p=i+1;last=x.score}return{...x,place:p}})};
 function view(r, socket){
-  const players=Object.entries(r.players).map(([id,p])=>({id,name:p.name,score:p.score,ready:p.ready,online:p.online,inGame:p.inGame}));
+  const players=Object.entries(r.players).map(([id,p])=>({id,name:p.name,score:p.score,ready:p.ready,online:p.online,inGame:p.inGame,avatar:p.avatar??null}));
   const v={code:r.code,phase:r.phase,players,rank:rank(players.filter(p=>r.phase==='lobby'||p.inGame)),qi:r.qi,n:r.tracks?.length ?? r.questions?.length ?? N,left:r.endsAt?Math.max(0,r.endsAt-Date.now()):0};
   v.mode = r.mode;
+  v.pack = r.packLabel;
   if (r.mode === 'blind') {
     const b = r.blind;
     if (socket.data.host && r.phase === 'musicSetup') {
@@ -99,6 +100,7 @@ function view(r, socket){
   }
   if (q && (r.phase === 'question' || r.phase === 'correction')) {
     v.q = q.q;
+    v.cat = q.cat;
     v.o = q.o;
     v.received = Object.keys(r.ans).length;
     v.total = players.filter(p => p.inGame).length;
@@ -193,7 +195,7 @@ io.on('connection',s=>{
     if(!r||r.key!==old.key){const code=newCode();r=rooms[code]={code,key:Math.random().toString(36).slice(2),players:{},phase:'lobby',qi:-1,ans:{},res:{}}}
     s.data={code:r.code,host:true};s.join(r.code);cb&&cb({code:r.code,key:r.key});push(r);
   });
-  s.on('join',({code,pid,name}={},cb)=>{
+  s.on('join',({code,pid,name,avatar}={},cb)=>{
     code=String(code||'').toUpperCase();const r=rooms[code];
     if(!r||!pid)return cb({err:'Salon introuvable'});
     let p=r.players[pid];
@@ -202,10 +204,11 @@ io.on('connection',s=>{
       if(r.phase!=='lobby')return cb({late:true});
       if(Object.keys(r.players).length>=MAXP)return cb({err:'Salon complet (10 joueurs maximum)'});
       name=String(name||'').trim().slice(0,14);if(!name)return cb({err:'Choisis un pseudo'});
-      r.players[pid]={name,score:0,ready:false,online:true,inGame:false};
+      r.players[pid]={name,score:0,ready:false,online:true,inGame:false,avatar:Number.isInteger(avatar)&&avatar>=0&&avatar<12?avatar:null};
     }
     s.data={code,pid};s.join(code);cb({ok:true});push(r);
   });
+  s.on('avatar',i=>{const r=R(),p=r&&r.players[s.data.pid];if(p&&r.phase==='lobby'&&Number.isInteger(i)&&i>=0&&i<12){p.avatar=i;push(r)}});
   s.on('ready',()=>{const r=R(),p=r&&r.players[s.data.pid];if(p&&r.phase==='lobby'){p.ready=!p.ready;push(r)}});
   s.on('answer',i=>{
     const r=R(),p=r&&r.players[s.data.pid];i=+i;
@@ -246,6 +249,7 @@ io.on('connection',s=>{
     const pack = availablePacks(r).get(id);
     if (!pack?.rows.length) return;
     r.questions = makeQuestions(id, pack);
+    r.packLabel = pack.label;
     Object.values(r.players).forEach(p=>{p.inGame=p.ready;p.score=0});
     r.qi=-1;go(r,'countdown',5000,()=>nextQ(r));
   });
@@ -330,7 +334,7 @@ io.on('connection',s=>{
   s.on('host:again',()=>{
     const r=R();if(!s.data.host||!r||r.phase!=='final')return;
     Object.keys(r.players).forEach(id=>{const p=r.players[id];if(!p.online)delete r.players[id];else{p.ready=false;p.score=0;p.inGame=false}});
-    r.qi=-1;delete r.questions;delete r.tracks;delete r.blind;go(r,'lobby',0);
+    r.qi=-1;delete r.questions;delete r.tracks;delete r.blind;delete r.packLabel;go(r,'lobby',0);
   });
   s.on('disconnect',()=>{const r=R(),p=r&&r.players[s.data.pid];if(p){p.online=false;push(r)}});
 });
